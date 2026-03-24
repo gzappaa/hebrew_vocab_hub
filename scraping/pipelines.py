@@ -2,11 +2,18 @@ import mysql.connector
 import os
 from dotenv import load_dotenv
 import pandas as pd
+from pymongo import MongoClient
 
-load_dotenv()  # load .env variables
+load_dotenv()
 
+# ---------------------- SQL PIPELINE ----------------------
 class SQLPipeline:
-    def open_spider(self, spider):
+    @classmethod
+    def from_crawler(cls, crawler):
+        # allows to access settings if needed: crawler.settings.get('MY_SETTING')
+        return cls()
+
+    def open_spider(self):
         self.conn = mysql.connector.connect(
             host=os.getenv("MYSQL_HOST"),
             user=os.getenv("MYSQL_USER"),
@@ -15,12 +22,15 @@ class SQLPipeline:
             charset='utf8mb4'
         )
         self.cursor = self.conn.cursor()
-        # force UTF-8 encoding for Hebrew characters
+
+        # UTF-8 for Hebrew support
         self.cursor.execute("SET NAMES utf8mb4;")
         self.cursor.execute("SET CHARACTER SET utf8mb4;")
         self.cursor.execute("SET character_set_connection=utf8mb4;")
-        # create table if it doesn't exist, now with root
-        self.cursor.execute("DROP TABLE IF EXISTS words")  # drop table for testing
+
+        # recreates table (dev mode)
+        self.cursor.execute("DROP TABLE IF EXISTS words")
+
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS words (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -33,49 +43,95 @@ class SQLPipeline:
                 word_url VARCHAR(255)
             ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
         """)
+
         self.conn.commit()
 
-    def close_spider(self, spider):
+    def close_spider(self):
+        self.cursor.close()
         self.conn.close()
 
-    def process_item(self, item, spider):
-        hebrew = item.get('hebrew', '')
-        transcription = item.get('transcription', '')
-        root = item.get('root', '-')
-        part_of_speech = item.get('part_of_speech', '')
-        meaning = item.get('meaning', '')
-        audio_url = item.get('audio_url', '')
-        word_url = item.get('word_url', '')
-
+    def process_item(self, item):
         sql = """
-            INSERT INTO words (hebrew, transcription, root, part_of_speech, meaning, audio_url, word_url)
+            INSERT INTO words 
+            (hebrew, transcription, root, part_of_speech, meaning, audio_url, word_url)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """
-        self.cursor.execute(sql, (hebrew, transcription, root, part_of_speech, meaning, audio_url, word_url))
+        self.cursor.execute(sql, (
+            item.get('hebrew', ''),
+            item.get('transcription', ''),
+            item.get('root', '-'),
+            item.get('part_of_speech', ''),
+            item.get('meaning', ''),
+            item.get('audio_url', ''),
+            item.get('word_url', '')
+        ))
         self.conn.commit()
         return item
-    
 
+
+# ---------------------- EXCEL PIPELINE ----------------------
 class ExcelPipeline:
+    @classmethod
+    def from_crawler(cls, crawler):
+        return cls()
+
     def __init__(self):
-        # let's keep items in memory and write to Excel at the end
         self.items = []
 
-    def open_spider(self, spider):
-        """Called when the spider starts."""
-        self.items = []  # clear items list at the start of the spider
+    def open_spider(self):
+        self.items = []
 
-    def close_spider(self, spider):
-        """Called when the spider finishes."""
-        # convert list of dicts to DataFrame
+    def close_spider(self):
+        if not self.items:
+            return
+
         df = pd.DataFrame(self.items)
-
-        # save to Excel
         df.to_excel("dict_words.xlsx", index=False)
         print(f"Saved {len(self.items)} items to dict_words.xlsx")
 
-    def process_item(self, item, spider):
-        """Called for every item scraped by the spider."""
-        # convert item to dict and append to items list
+    def process_item(self, item):
         self.items.append(dict(item))
+        return item
+
+
+# ---------------------- MONGO PIPELINE ----------------------
+class MongoPipeline:
+    @classmethod
+    def from_crawler(cls, crawler):
+        return cls()
+
+    def open_spider(self):
+        uri = os.getenv("MONGO_URI")
+        if not uri:
+            raise ValueError("MONGO_URI not found in .env")
+
+        self.client = MongoClient(uri)
+        self.db = self.client["hebrew_vocab_hub"]
+        self.db["dict"].delete_many({})  # clear collection on start
+
+        # buffer pra performance
+        self.buffer = []
+        self.batch_size = 100
+
+    def close_spider(self):
+        if self.buffer:
+            self.db["dict"].insert_many(self.buffer)
+        self.client.close()
+
+    def process_item(self, item):
+        doc = {
+            "hebrew": item.get('hebrew', ''),
+            "transcription": item.get('transcription', ''),
+            "root": item.get('root', '-'),
+            "part_of_speech": item.get('part_of_speech', ''),
+            "meaning": item.get('meaning', ''),
+            "audio_url": item.get('audio_url', ''),
+            "word_url": item.get('word_url', '')
+        }
+        self.buffer.append(doc)
+
+        if len(self.buffer) >= self.batch_size:
+            self.db["dict"].insert_many(self.buffer)
+            self.buffer = []
+
         return item

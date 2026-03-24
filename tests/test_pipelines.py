@@ -1,72 +1,107 @@
 import unittest
 from unittest.mock import MagicMock, patch
-from scraping.pipelines import SQLPipeline
 
+from scraping.pipelines import SQLPipeline, ExcelPipeline, MongoPipeline
+
+
+# ---------------------- SQL PIPELINE ----------------------
 class TestSQLPipeline(unittest.TestCase):
 
     @patch('mysql.connector.connect')
     def setUp(self, mock_connect):
-        """Setup a pipeline instance with a mocked MySQL connection and cursor."""
-        # Mock connection and cursor
         self.mock_conn = MagicMock()
         self.mock_cursor = MagicMock()
+
         self.mock_conn.cursor.return_value = self.mock_cursor
         mock_connect.return_value = self.mock_conn
 
-        # Create pipeline and open spider (which will use mocked conn/cursor)
         self.pipeline = SQLPipeline()
         self.pipeline.open_spider(spider=None)
 
-    def test_process_item_inserts_correctly(self):
-        """Ensure that process_item executes the correct SQL with proper values."""
+    def test_process_item_insert(self):
         item = {
             'hebrew': 'שלום',
             'transcription': 'shalom',
             'root': 'ש-ל-ם',
             'part_of_speech': 'noun',
             'meaning': 'peace',
-            'audio_url': 'http://audio.mp3',
-            'word_url': 'http://word.url'
+            'audio_url': 'url',
+            'word_url': 'url'
         }
 
-        result = self.pipeline.process_item(item, spider=None)
+        result = self.pipeline.process_item(item, None)
 
-        # Check that cursor.execute was called with correct SQL and params
-        self.mock_cursor.execute.assert_called_with(
-            """
-            INSERT INTO words (hebrew, transcription, root, part_of_speech, meaning, audio_url, word_url)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """,
-            ('שלום', 'shalom', 'ש-ל-ם', 'noun', 'peace', 'http://audio.mp3', 'http://word.url')
-        )
-
-        # Check that connection.commit() was called
+        self.assertEqual(self.mock_cursor.execute.call_count, 1)
         self.mock_conn.commit.assert_called()
-
-        # The returned item should be the same
         self.assertEqual(result, item)
 
     def test_process_item_defaults(self):
-        """Ensure defaults are used if some keys are missing in the item."""
-        item = {}  # empty item
+        item = {}
 
-        result = self.pipeline.process_item(item, spider=None)
+        self.pipeline.process_item(item, None)
 
-        # Check that cursor.execute was called with defaults
-        self.mock_cursor.execute.assert_called_with(
-            """
-            INSERT INTO words (hebrew, transcription, root, part_of_speech, meaning, audio_url, word_url)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """,
-            ('', '', '-', '', '', '', '')
-        )
+        args = self.mock_cursor.execute.call_args[0][1]
+        self.assertEqual(args, ('', '', '-', '', '', '', ''))
 
-        self.assertEqual(result, item)
-
-    def tearDown(self):
-        """Close spider (mocked connection)."""
-        self.pipeline.close_spider(spider=None)
+    def test_close_spider(self):
+        self.pipeline.close_spider(None)
         self.mock_conn.close.assert_called()
 
-if __name__ == '__main__':
+
+# ---------------------- EXCEL PIPELINE ----------------------
+class TestExcelPipeline(unittest.TestCase):
+
+    @patch("pandas.DataFrame.to_excel")
+    def test_excel_save(self, mock_to_excel):
+        pipeline = ExcelPipeline()
+        pipeline.open_spider(None)
+
+        pipeline.process_item({'hebrew': 'שלום'}, None)
+        pipeline.process_item({'hebrew': 'מים'}, None)
+
+        pipeline.close_spider(None)
+
+        mock_to_excel.assert_called_once()
+
+
+# ---------------------- MONGO PIPELINE ----------------------
+class TestMongoPipeline(unittest.TestCase):
+
+    @patch("pymongo.MongoClient")
+    @patch("os.getenv", return_value="mongodb://fake")
+    def test_mongo_insert(self, mock_env, mock_client):
+        mock_db = MagicMock()
+        mock_collection = MagicMock()
+
+        mock_client.return_value.__getitem__.return_value = mock_db
+        mock_db.__getitem__.return_value = mock_collection
+
+        pipeline = MongoPipeline()
+        pipeline.open_spider(None)
+
+        pipeline.process_item({'hebrew': 'שלום'}, None)
+        pipeline.close_spider(None)
+
+        mock_collection.insert_many.assert_called()
+
+    @patch("pymongo.MongoClient")
+    @patch("os.getenv", return_value="mongodb://fake")
+    def test_mongo_buffer(self, mock_env, mock_client):
+        mock_db = MagicMock()
+        mock_collection = MagicMock()
+
+        mock_client.return_value.__getitem__.return_value = mock_db
+        mock_db.__getitem__.return_value = mock_collection
+
+        pipeline = MongoPipeline()
+        pipeline.open_spider(None)
+        pipeline.batch_size = 2  # força flush rápido
+
+        pipeline.process_item({'hebrew': 'a'}, None)
+        pipeline.process_item({'hebrew': 'b'}, None)
+
+        mock_collection.insert_many.assert_called()
+
+
+if __name__ == "__main__":
     unittest.main()

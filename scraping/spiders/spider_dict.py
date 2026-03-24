@@ -1,14 +1,21 @@
 import scrapy
 from scrapy.loader import ItemLoader
 from scraping.items import DictItem
+import time
 
 class DictSpider(scrapy.Spider):
     name = "dictspider"
     start_urls = ["https://www.pealim.com/dict/"]
+    max_pages = 10  # limit of pages to crawl for testing, can be removed for full crawl
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.pages_crawled = 0
 
     def parse(self, response):
-        rows = response.css("table.dict-table-t tbody tr")
+        self.pages_crawled += 1
         base_url = "https://www.pealim.com"
+        rows = response.css("table.dict-table-t tbody tr")
 
         for row in rows:
             loader = ItemLoader(item=DictItem(), selector=row)
@@ -22,8 +29,8 @@ class DictSpider(scrapy.Spider):
             if roots:
                 loader.replace_value('root', ' - '.join(r.strip() for r in roots if r.strip()))
 
-            pos_nodes = row.xpath("td[3]//text()").getall()  # get all texts inside the td 
-            pos_text = ' '.join(p.strip() for p in pos_nodes if p.strip())  # merge them into one string
+            pos_nodes = row.xpath("td[3]//text()").getall()
+            pos_text = ' '.join(p.strip() for p in pos_nodes if p.strip())
             loader.add_value('part_of_speech', pos_text if pos_text else '-')
             loader.add_css('meaning', 'td.dict-meaning::text')
             loader.add_css('audio_url', 'span.audio-play::attr(data-audio)')
@@ -33,3 +40,10 @@ class DictSpider(scrapy.Spider):
             loader.add_value('word_url', full_url)
 
             yield loader.load_item()
+
+        # --- next page ---
+        if self.pages_crawled < self.max_pages:
+            next_page = response.css(f'li a[href*="?page={self.pages_crawled+1}"]::attr(href)').get()
+            if next_page:
+                time.sleep(1)  # delay to avoid hitting the server too hard
+                yield response.follow(next_page, callback=self.parse)

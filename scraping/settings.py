@@ -64,6 +64,7 @@ DOWNLOAD_DELAY = 1
 ITEM_PIPELINES = {
     'scraping.pipelines.SQLPipeline': 300,
     'scraping.pipelines.ExcelPipeline': 400,
+    'scraping.pipelines.MongoPipeline': 500,
 }
 # Enable and configure the AutoThrottle extension (disabled by default)
 # See https://docs.scrapy.org/en/latest/topics/autothrottle.html
