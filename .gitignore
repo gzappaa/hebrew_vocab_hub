@@ -1,3 +1,6 @@
 .env
 dict.json
 dict_words.xlsx
+scrapy_full_log.txt
+__pycache__/
+roadmap.md

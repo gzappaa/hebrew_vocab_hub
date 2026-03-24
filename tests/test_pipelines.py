@@ -1,8 +1,6 @@
 import unittest
 from unittest.mock import MagicMock, patch
-
 from scraping.pipelines import SQLPipeline, ExcelPipeline, MongoPipeline
-
 
 # ---------------------- SQL PIPELINE ----------------------
 class TestSQLPipeline(unittest.TestCase):
@@ -11,12 +9,11 @@ class TestSQLPipeline(unittest.TestCase):
     def setUp(self, mock_connect):
         self.mock_conn = MagicMock()
         self.mock_cursor = MagicMock()
-
         self.mock_conn.cursor.return_value = self.mock_cursor
         mock_connect.return_value = self.mock_conn
 
         self.pipeline = SQLPipeline()
-        self.pipeline.open_spider(spider=None)
+        self.pipeline.open_spider()
 
     def test_process_item_insert(self):
         item = {
@@ -28,23 +25,25 @@ class TestSQLPipeline(unittest.TestCase):
             'audio_url': 'url',
             'word_url': 'url'
         }
+        result = self.pipeline.process_item(item)
 
-        result = self.pipeline.process_item(item, None)
+        # ✅ test if execute was called
+        self.assertTrue(self.mock_cursor.execute.called)
 
-        self.assertEqual(self.mock_cursor.execute.call_count, 1)
+        # Test if commit was called
         self.mock_conn.commit.assert_called()
+
+        # Test if the returned item is the same
         self.assertEqual(result, item)
 
     def test_process_item_defaults(self):
         item = {}
-
-        self.pipeline.process_item(item, None)
-
+        self.pipeline.process_item(item)
         args = self.mock_cursor.execute.call_args[0][1]
         self.assertEqual(args, ('', '', '-', '', '', '', ''))
 
     def test_close_spider(self):
-        self.pipeline.close_spider(None)
+        self.pipeline.close_spider()
         self.mock_conn.close.assert_called()
 
 
@@ -54,12 +53,11 @@ class TestExcelPipeline(unittest.TestCase):
     @patch("pandas.DataFrame.to_excel")
     def test_excel_save(self, mock_to_excel):
         pipeline = ExcelPipeline()
-        pipeline.open_spider(None)
+        pipeline.open_spider()
 
-        pipeline.process_item({'hebrew': 'שלום'}, None)
-        pipeline.process_item({'hebrew': 'מים'}, None)
-
-        pipeline.close_spider(None)
+        pipeline.process_item({'hebrew': 'שלום'})
+        pipeline.process_item({'hebrew': 'מים'})
+        pipeline.close_spider()
 
         mock_to_excel.assert_called_once()
 
@@ -67,38 +65,41 @@ class TestExcelPipeline(unittest.TestCase):
 # ---------------------- MONGO PIPELINE ----------------------
 class TestMongoPipeline(unittest.TestCase):
 
-    @patch("pymongo.MongoClient")
-    @patch("os.getenv", return_value="mongodb://fake")
+    @patch("scraping.pipelines.MongoClient")
+    @patch("scraping.pipelines.os.getenv", return_value="mongodb://fake")
     def test_mongo_insert(self, mock_env, mock_client):
-        mock_db = MagicMock()
         mock_collection = MagicMock()
+        mock_collection.delete_many.return_value = None
+        mock_collection.insert_many.return_value = None
 
-        mock_client.return_value.__getitem__.return_value = mock_db
+        mock_db = MagicMock()
         mock_db.__getitem__.return_value = mock_collection
+        mock_client.return_value.__getitem__.return_value = mock_db
 
         pipeline = MongoPipeline()
-        pipeline.open_spider(None)
+        pipeline.open_spider()
 
-        pipeline.process_item({'hebrew': 'שלום'}, None)
-        pipeline.close_spider(None)
+        pipeline.process_item({'hebrew': 'שלום'})
+        pipeline.close_spider()
 
         mock_collection.insert_many.assert_called()
 
-    @patch("pymongo.MongoClient")
-    @patch("os.getenv", return_value="mongodb://fake")
-    def test_mongo_buffer(self, mock_env, mock_client):
-        mock_db = MagicMock()
+    @patch("scraping.pipelines.MongoClient")
+    @patch("scraping.pipelines.os.getenv", return_value="mongodb://fake")
+    def test_mongo_buffer_flush(self, mock_env, mock_client):
         mock_collection = MagicMock()
+        mock_collection.delete_many.return_value = None
+        mock_collection.insert_many.return_value = None
 
-        mock_client.return_value.__getitem__.return_value = mock_db
+        mock_db = MagicMock()
         mock_db.__getitem__.return_value = mock_collection
+        mock_client.return_value.__getitem__.return_value = mock_db
 
         pipeline = MongoPipeline()
-        pipeline.open_spider(None)
-        pipeline.batch_size = 2  # força flush rápido
-
-        pipeline.process_item({'hebrew': 'a'}, None)
-        pipeline.process_item({'hebrew': 'b'}, None)
+        pipeline.open_spider()
+        pipeline.batch_size = 2  # force flush after 2 items
+        pipeline.process_item({'hebrew': 'a'})
+        pipeline.process_item({'hebrew': 'b'})
 
         mock_collection.insert_many.assert_called()
 
