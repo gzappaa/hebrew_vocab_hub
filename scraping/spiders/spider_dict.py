@@ -6,10 +6,10 @@ class DictSpider(scrapy.Spider):
     name = "dictspider"
     start_urls = ["https://www.pealim.com/dict/"]
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, max_pages=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.pages_crawled = 0
-        self.max_pages = 650  # tests
+        self.max_pages = int(max_pages) if max_pages else 650  # default 650 if not provided
 
     def parse(self, response):
         self.pages_crawled += 1

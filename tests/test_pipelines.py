@@ -1,6 +1,9 @@
 import unittest
 from unittest.mock import MagicMock, patch
-from scraping.pipelines import SQLPipeline, ExcelPipeline, MongoPipeline
+from scraping.pipelines import SQLPipeline, ExcelPipeline, MongoPipeline, WordsPipeline
+
+
+
 
 # ---------------------- SQL PIPELINE ----------------------
 class TestSQLPipeline(unittest.TestCase):
@@ -102,6 +105,86 @@ class TestMongoPipeline(unittest.TestCase):
         pipeline.process_item({'hebrew': 'b'})
 
         mock_collection.insert_many.assert_called()
+
+
+class TestWordsPipeline(unittest.TestCase):
+
+    @patch("scraping.pipelines.MongoClient")
+    @patch("scraping.pipelines.os.getenv", return_value="mongodb://fake")
+    def setUp(self, mock_env, mock_client):
+        # Mock collection and database
+        self.mock_collection = MagicMock()
+        self.mock_db = MagicMock()
+        self.mock_db.__getitem__.return_value = self.mock_collection
+        mock_client.return_value.__getitem__.return_value = self.mock_db
+
+        self.pipeline = WordsPipeline()
+        self.pipeline.open_spider()
+
+    def test_process_item_with_tables(self):
+        # Item with tables
+        item = {
+            "hebrew": "שלום",
+            "transcription": "shalom",
+            "root": "ש-ל-ם",
+            "part_of_speech": "noun",
+            "meaning": "peace",
+            "word_url": "url",
+            "tables": [{"headers": ["Past", "Present"], "rows": [{"cells": [{"hebrew": "הלך"}]}]}]
+        }
+
+        result = self.pipeline.process_item(item)
+
+        # Item returned unchanged
+        self.assertEqual(result, item)
+        # Buffer should contain the doc
+        self.assertEqual(len(self.pipeline.buffer), 1)
+        self.assertEqual(self.pipeline.buffer[0]["tables"], item["tables"])
+
+    def test_process_item_defaults(self):
+        # Item with missing fields
+        item = {}
+        result = self.pipeline.process_item(item)
+
+        doc = self.pipeline.buffer[0]
+        self.assertEqual(doc["hebrew"], "")
+        self.assertEqual(doc["transcription"], "")
+        self.assertEqual(doc["root"], "-")
+        self.assertEqual(doc["tables"], {})
+
+    def test_buffer_flush_on_batch_size(self):
+        # Force small batch size for testing
+        self.pipeline.batch_size = 2
+        item1 = {"hebrew": "a"}
+        item2 = {"hebrew": "b"}
+
+        self.pipeline.process_item(item1)
+        # Should not flush yet
+        self.assertEqual(self.pipeline.buffer, [ 
+            {
+                "hebrew": "a",
+                "transcription": "",
+                "root": "-",
+                "part_of_speech": "",
+                "meaning": "",
+                "word_url": "",
+                "tables": {}
+            }
+        ])
+
+        # Process second item -> should flush
+        self.pipeline.process_item(item2)
+        self.assertEqual(self.pipeline.buffer, [])
+        self.pipeline.db["words"].insert_many.assert_called_once()
+
+    def test_close_spider_flush_remaining(self):
+        # Add item to buffer
+        item = {"hebrew": "remaining"}
+        self.pipeline.process_item(item)
+        self.pipeline.close_spider()
+        # Should flush remaining buffer
+        self.pipeline.db["words"].insert_many.assert_called_once()
+        self.pipeline.client.close.assert_called_once()
 
 
 if __name__ == "__main__":

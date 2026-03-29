@@ -74,6 +74,31 @@ pip install -r requirements.txt
 
 3. Set your environment variables in .env for MySQL and MongoDB connections.
 
+## Running the Scraper
+
+You can run the spider in several ways:
+
+1. Scrape all pages (default max_pages=650) and save to .json too
+
+```
+scrapy crawl dictspider -o dict_words.json
+
+or 
+
+scrapy crawl dictspider
+```
+
+2. Limit the number of pages
+
+You can pass max_pages as a command-line argument:
+
+```
+scrapy crawl dictspider -a max_pages=10 -o dict_words.json
+```
+
+This will scrape only the first 10 pages.
+
+
 ## Run Pipelines Separately (Optional)
 
 You can use the pipelines independently in Python scripts:

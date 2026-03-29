@@ -107,7 +107,7 @@ class MongoPipeline:
 
         self.client = MongoClient(uri)
         self.db = self.client["hebrew_vocab_hub"]
-        self.db["dict"].delete_many({})  # clear collection on start
+
 
         # buffer pra performance
         self.buffer = []
@@ -132,6 +132,49 @@ class MongoPipeline:
 
         if len(self.buffer) >= self.batch_size:
             self.db["dict"].insert_many(self.buffer)
+            self.buffer = []
+
+        return item
+
+
+# ----------------------- MONGO PIPELINE 2.0 (with tables) ----------------------
+
+class WordsPipeline:
+    @classmethod
+    def from_crawler(cls, crawler):
+        return cls()
+
+    def open_spider(self):
+        uri = os.getenv("MONGO_URI")
+        if not uri:
+            raise ValueError("MONGO_URI not found in .env")
+
+        self.client = MongoClient(uri)
+        self.db = self.client["hebrew_vocab_hub"]
+        # buffer for performance
+        self.buffer = []
+        self.batch_size = 100
+
+    def close_spider(self):
+        if self.buffer:
+            self.db["words_corrected"].insert_many(self.buffer)
+        self.client.close()
+
+    def process_item(self, item):
+        # mount the document with tables (if any)
+        doc = {
+            "hebrew": item.get("hebrew", ""),
+            "transcription": item.get("transcription", ""),
+            "root": item.get("root", "-"),
+            "part_of_speech": item.get("part_of_speech", ""),
+            "meaning": item.get("meaning", ""),
+            "word_url": item.get("word_url", ""),
+            "tables": item.get("tables", {})  # dynamic tables field from details spider
+        }
+        self.buffer.append(doc)
+
+        if len(self.buffer) >= self.batch_size:
+            self.db["words_corrected"].insert_many(self.buffer)
             self.buffer = []
 
         return item
