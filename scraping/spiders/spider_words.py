@@ -4,7 +4,7 @@ import os
 
 
 class DetailspiderSpider(scrapy.Spider):
-    name = "detailspider"
+    name = "spider_words"
     allowed_domains = ["pealim.com"]
 
     # === Custom settings: only runs WordsPipeline (if tiver) ===

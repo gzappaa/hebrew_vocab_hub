@@ -4,7 +4,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 # paths
-BASE_DIR = Path(__file__).parent.parent  # vai de scripts/ -> data/
+BASE_DIR = Path(__file__).parent.parent  # from scripts/ -> data/
 HTML_FILE = BASE_DIR / "Spotify_Weekly_Chart_Totals-Israel.html"
 OUTPUT_FILE = BASE_DIR / "hebrew_songs.json"
 

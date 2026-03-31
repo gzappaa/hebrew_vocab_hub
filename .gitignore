@@ -6,3 +6,6 @@ __pycache__/
 roadmap.md
 dict-complete.json
 hebrew_songs_log.txt
+articles.json
+hadshon.json
+*.bak

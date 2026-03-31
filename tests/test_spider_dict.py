@@ -1,25 +1,38 @@
 import unittest
 from pathlib import Path
-from scrapy.http import HtmlResponse
+from scrapy.http import HtmlResponse, Request
 from scraping.spiders.spider_dict import DictSpider
+from scraping.items import DictItem
+
 
 class TestDictSpiderLocal(unittest.TestCase):
+
     def setUp(self):
         self.spider = DictSpider()
-        self.data_dir = Path(__file__).parent / "data"
+        html = (Path(__file__).parent / "data" / "fixtures" / "htmls" / "pealim.html").read_bytes()
+        request = Request(url="https://www.pealim.com/dict/")
+        self.response = HtmlResponse(url="https://www.pealim.com/dict/", request=request, body=html)
+        self.results = list(self.spider.parse(self.response))
 
-    def test_parse_item_from_file(self):
-        html_file = self.data_dir / "pealim.html"
-        with open(html_file, "r", encoding="utf-8") as f:
-            html = f.read()
+    def test_yields_items(self):
+        items = [r for r in self.results if isinstance(r, DictItem)]
+        self.assertGreater(len(items), 0)
 
-        response = HtmlResponse(url='https://www.pealim.com/dict/', body=html, encoding='utf-8')
-        items = list(self.spider.parse(response))
+    def test_item_fields_present(self):
+        items = [r for r in self.results if isinstance(r, DictItem)]
+        first = items[0]
+        self.assertIn("hebrew", first)
+        self.assertIn("transcription", first)
+        self.assertIn("part_of_speech", first)
+        self.assertIn("meaning", first)
+        self.assertIn("word_url", first)
 
-        self.assertTrue(len(items) > 0)
-        first_item = items[0]
-        self.assertIn('hebrew', first_item)
-        self.assertIn('transcription', first_item)
-        self.assertIn('part_of_speech', first_item)
-        self.assertIn('meaning', first_item)
-        self.assertIn('word_url', first_item)
+    def test_hebrew_not_empty(self):
+        items = [r for r in self.results if isinstance(r, DictItem)]
+        self.assertTrue(all(item.get("hebrew") for item in items))
+
+    def test_yields_next_page_request(self):
+        from scrapy.http import Request as ScrapyRequest
+        requests = [r for r in self.results if isinstance(r, ScrapyRequest)]
+        self.assertEqual(len(requests), 1)
+        self.assertIn("page=", requests[0].url)

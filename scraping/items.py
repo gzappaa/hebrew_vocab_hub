@@ -41,3 +41,20 @@ class DictItem(scrapy.Item):
     )
     audio_url = scrapy.Field(output_processor=TakeFirst())
     word_url = scrapy.Field(output_processor=TakeFirst())
+
+
+
+class HadshonItem(scrapy.Item):  
+    category = scrapy.Field()  # words, abbreviations, proverbs, people
+    letter   = scrapy.Field()  # א, ב, etc
+    hebrew   = scrapy.Field()
+    audio_url = scrapy.Field()
+    text     = scrapy.Field()
+    more_info = scrapy.Field()
+
+class ArticleItem(scrapy.Item):
+    title             = scrapy.Field()
+    category          = scrapy.Field()
+    audio_urls        = scrapy.Field()  # list
+    text              = scrapy.Field()
+    word_explanations = scrapy.Field()

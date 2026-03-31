@@ -2,12 +2,12 @@ import unittest
 from pathlib import Path
 from scrapy.http import HtmlResponse
 from scrapy import Request
-from scraping.spiders.detailspider import DetailspiderSpider
+from scraping.spiders.spider_words import DetailspiderSpider
 
 class TestDetailSpiderLocal(unittest.TestCase):
     def setUp(self):
         self.spider = DetailspiderSpider()
-        self.html_dir = Path(__file__).parent / "data" / "htmls"
+        self.html_dir = Path(__file__).parent / "data" / "fixtures" / "htmls" / "pealimpages"
 
     def test_parse_all_local_htmls(self):
         html_files = list(self.html_dir.glob("*.html"))

@@ -46,5 +46,17 @@ class TestDictItem(unittest.TestCase):
         item = loader.load_item()
         self.assertEqual(item['hebrew'], 'שלום')
 
+
+        
+    def test_normalize_dash_in_pos(self):
+        """Test that em dash is normalized to regular dash"""
+        loader = ItemLoader(item=DictItem())
+        loader.add_value('part_of_speech', 'noun – verb')
+        item = loader.load_item()
+        self.assertEqual(item['part_of_speech'], 'noun - verb')
+
+
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -1,22 +1,21 @@
 import unittest
 from unittest.mock import MagicMock, patch
 from scraping.pipelines import SQLPipeline, ExcelPipeline, MongoPipeline, WordsPipeline
-
+import os
 
 
 
 # ---------------------- SQL PIPELINE ----------------------
 class TestSQLPipeline(unittest.TestCase):
 
-    @patch('mysql.connector.connect')
-    def setUp(self, mock_connect):
+    def setUp(self):
         self.mock_conn = MagicMock()
         self.mock_cursor = MagicMock()
         self.mock_conn.cursor.return_value = self.mock_cursor
-        mock_connect.return_value = self.mock_conn
 
-        self.pipeline = SQLPipeline()
-        self.pipeline.open_spider()
+        with patch('mysql.connector.connect', return_value=self.mock_conn):
+            self.pipeline = SQLPipeline()
+            self.pipeline.open_spider()
 
     def test_process_item_insert(self):
         item = {
@@ -63,6 +62,10 @@ class TestExcelPipeline(unittest.TestCase):
         pipeline.close_spider()
 
         mock_to_excel.assert_called_once()
+    
+    def tearDown(self):
+        if os.path.exists("dict_words.xlsx"):
+            os.remove("dict_words.xlsx")
 
 
 # ---------------------- MONGO PIPELINE ----------------------
@@ -109,17 +112,16 @@ class TestMongoPipeline(unittest.TestCase):
 
 class TestWordsPipeline(unittest.TestCase):
 
-    @patch("scraping.pipelines.MongoClient")
-    @patch("scraping.pipelines.os.getenv", return_value="mongodb://fake")
-    def setUp(self, mock_env, mock_client):
-        # Mock collection and database
+    def setUp(self):
         self.mock_collection = MagicMock()
         self.mock_db = MagicMock()
         self.mock_db.__getitem__.return_value = self.mock_collection
-        mock_client.return_value.__getitem__.return_value = self.mock_db
 
-        self.pipeline = WordsPipeline()
-        self.pipeline.open_spider()
+        with patch("scraping.pipelines.MongoClient") as mock_client, \
+            patch("scraping.pipelines.os.getenv", return_value="mongodb://fake"):
+            mock_client.return_value.__getitem__.return_value = self.mock_db
+            self.pipeline = WordsPipeline()
+            self.pipeline.open_spider()
 
     def test_process_item_with_tables(self):
         # Item with tables
@@ -183,7 +185,7 @@ class TestWordsPipeline(unittest.TestCase):
         self.pipeline.process_item(item)
         self.pipeline.close_spider()
         # Should flush remaining buffer
-        self.pipeline.db["words"].insert_many.assert_called_once()
+        self.pipeline.db["words_corrected"].insert_many.assert_called_once()
         self.pipeline.client.close.assert_called_once()
 
 
