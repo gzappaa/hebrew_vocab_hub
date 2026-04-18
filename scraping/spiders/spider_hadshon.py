@@ -12,13 +12,20 @@ class HadshonSpider(scrapy.Spider):
         "AUTOTHROTTLE_ENABLED": True,
         "AUTOTHROTTLE_START_DELAY": 1,
         "AUTOTHROTTLE_MAX_DELAY": 5,
+        "FEEDS": {
+            "data/hadshon.json": {
+                "format": "json",
+                "encoding": "utf8",
+                "indent": 2,
+            }
+        }
     }
 
     CATEGORIES = {
-        "words":         "lexicons/words-and-concepts",
+        "words": "lexicons/words-and-concepts",
         "abbreviations": "lexicons/acronyms-and-abbreviations",
-        "proverbs":      "lexicons/proverbs",
-        "people":        "lexicons/people",
+        "proverbs": "lexicons/proverbs",
+        "people": "lexicons/people",
     }
 
     hebrew_letters = [
@@ -44,11 +51,10 @@ class HadshonSpider(scrapy.Spider):
 
     def parse_letter(self, response):
         category = response.meta["category"]
-        letter   = response.meta["letter"]
-        page     = response.meta["page"]
-        path     = self.CATEGORIES[category]
+        letter = response.meta["letter"]
+        page = response.meta["page"]
+        path = self.CATEGORIES[category]
 
-        # Condição de parada
         if response.css("div.contentByLetterContainer div").re_first(r"לא נמצאו תוצאות"):
             self.logger.info(f"[{category}] {letter} ended by page {page}")
             return
@@ -60,14 +66,14 @@ class HadshonSpider(scrapy.Spider):
             return
 
         for li in items:
-            hebrew    = li.css("h3.termName::text").get("").strip()
+            hebrew = li.css("h3.termName::text").get("").strip()
             audio_url = li.css("audio source::attr(src)").get("") or ""
 
             text_parts = li.css("div.definition div.text *::text").getall()
-            text       = " ".join(t.strip() for t in text_parts if t.strip())
+            text = " ".join(t.strip() for t in text_parts if t.strip())
 
             more_parts = li.css("div.moreText *::text").getall()
-            more_info  = " ".join(t.strip() for t in more_parts if t.strip())
+            more_info = " ".join(t.strip() for t in more_parts if t.strip())
 
             yield HadshonItem(
                 category=category,

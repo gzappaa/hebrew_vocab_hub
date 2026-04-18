@@ -2,9 +2,27 @@ import scrapy
 from scrapy.loader import ItemLoader
 from scraping.items import DictItem
 
+
+
 class DictSpider(scrapy.Spider):
     name = "dictspider"
     start_urls = ["https://www.pealim.com/dict/"]
+
+    ## custom settings
+    custom_settings = {
+        "ITEM_PIPELINES": {
+            "scraping.pipelines.SQLPipeline": 300,
+            "scraping.pipelines.MongoPipeline": 400,
+            "scraping.pipelines.ExcelPipeline": 500,
+        },
+        "FEEDS": {
+            "dict.json": {
+                "format": "json",
+                "encoding": "utf8",
+                "indent": 2,
+            }
+        }
+    }
 
     def __init__(self, max_pages=None, *args, **kwargs):
         super().__init__(*args, **kwargs)

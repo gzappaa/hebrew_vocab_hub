@@ -1,3 +1,10 @@
+requests
+python-dotenv
 scrapy
-mysql.connector
-dotenv
+itemloaders
+itemadapter
+pandas
+mysql-connector-python
+pymongo
+playwright
+beautifulsoup4

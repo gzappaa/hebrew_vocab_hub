@@ -7,22 +7,23 @@ import os
 import re
 
 # -----------------------------
-# Paths
+# Paths 
 # -----------------------------
-SCRIPT_DIR = Path(__file__).parent             
-ROOT_DIR = SCRIPT_DIR.parent.parent          
-DATA_DIR = ROOT_DIR / "data"               
-JSON_FILE = DATA_DIR / "trending_daily.json"  
+SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR.parents[2]
+DATA_DIR = ROOT_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
+JSON_FILE = DATA_DIR / "trending_daily.json"
 
 # -----------------------------
-# Load environment variables
+# Env
 # -----------------------------
 load_dotenv(ROOT_DIR / ".env")
 API_KEY_YOUTUBE = os.getenv("API_KEY_YOUTUBE")
+
 BASE = "https://www.googleapis.com/youtube/v3"
-
 HEBREW_REGEX = re.compile(r"[\u0590-\u05FF]")
-
 
 class QuotaExceededException(Exception):
     pass
@@ -45,8 +46,8 @@ def get_trending_videos(region="IL", max_results=50):
 def filter_hebrew_videos(videos):
     return [
         v for v in videos
-        if HEBREW_REGEX.search(v["snippet"]["title"]) or
-           HEBREW_REGEX.search(v["snippet"]["channelTitle"])
+        if HEBREW_REGEX.search(v["snippet"]["title"])
+        or HEBREW_REGEX.search(v["snippet"]["channelTitle"])
     ]
 
 
@@ -82,6 +83,7 @@ def get_comments(video_id, existing_ids=None):
             comment_id = c["snippet"]["topLevelComment"]["id"]
             if comment_id in existing_ids:
                 continue
+
             top = c["snippet"]["topLevelComment"]["snippet"]
             comments.append({
                 "id": comment_id,
@@ -113,6 +115,7 @@ def save(data_dict):
 
 def main():
     print("Fetching trending videos in Israel...\n")
+
     videos = filter_hebrew_videos(get_trending_videos(max_results=50))
     print(f"Hebrew videos found: {len(videos)}\n")
 
@@ -131,11 +134,12 @@ def main():
         video_id = video["id"]
         snippet = video["snippet"]
         stats = video["statistics"]
+
         title = snippet["title"]
 
         if video_id in existing_data:
             entry = existing_data[video_id]
-            existing_ids = set(c["id"] for c in entry.get("comments", []) if "id" in c)
+            existing_ids = {c["id"] for c in entry.get("comments", []) if "id" in c}
             print(f"Known: {title[:60]} | Comments: {len(existing_ids)}")
         else:
             entry = {
@@ -160,6 +164,7 @@ def main():
         try:
             new_comments = get_comments(video_id, existing_ids=existing_ids)
             entry["comments"].extend(new_comments)
+
             total_new += len(new_comments)
             print(f"  +{len(new_comments)} comments | Total: {len(entry['comments'])}")
 
@@ -167,19 +172,14 @@ def main():
             quota_exceeded = True
             existing_data[video_id] = entry
             save(existing_data)
-            print("\n" + "=" * 60)
-            print("🚫  QUOTA EXCEEDED")
-            print(f"    Saved — {total_new} new comments today.")
-            print("=" * 60)
+            print("\n🚫 QUOTA EXCEEDED")
             return
 
         existing_data[video_id] = entry
         save(existing_data)
 
-    print("\n" + "=" * 60)
-    print("✅  DONE")
-    print(f"    {total_new} new comments | {len(existing_data)} videos tracked")
-    print("=" * 60)
+    print("\n✅ DONE")
+    print(f"{total_new} new comments | {len(existing_data)} videos tracked")
 
 
 if __name__ == "__main__":

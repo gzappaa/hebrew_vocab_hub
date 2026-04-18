@@ -2,23 +2,31 @@ import json
 from pathlib import Path
 import re
 
-# --- paths ---
+# -----------------------------
+# Paths
+# -----------------------------
 root = Path(__file__).parent.parent
-data_dir = root               # pasta data
-data_dir.mkdir(exist_ok=True)           # garante que a pasta exista
+data_dir = root
+data_dir.mkdir(exist_ok=True)
 
-lyrics_file = root / "all_lyrics.txt"          # TXT de letras
-articles_file = root / "articles.json"        # JSON de artigos
-trending_file = root / "trending_daily.json"  # JSON de comentários
-output_file = data_dir / "unique_words.txt"   # salva dentro de data
+lyrics_file = root / "all_lyrics.txt"
+articles_file = root / "hadshon_articles.json"
+trending_file = root / "trending_23-03-2026.json"
+output_file = data_dir / "unique_words.txt"
 
-# --- regex para pegar só caracteres hebraicos ---
+# -----------------------------
+# Regex: match Hebrew words
+# -----------------------------
 hebrew_re = re.compile(r'[\u0590-\u05FF]+')
 
-# --- set para palavras únicas ---
+# -----------------------------
+# Store unique words
+# -----------------------------
 unique_words = set()
 
-# ---- Parte 1: letras de música ----
+# -----------------------------
+# Part 1: Lyrics
+# -----------------------------
 with open(lyrics_file, "r", encoding="utf-8") as f:
     for line in f:
         line = line.strip()
@@ -27,25 +35,30 @@ with open(lyrics_file, "r", encoding="utf-8") as f:
         words = hebrew_re.findall(line)
         unique_words.update(words)
 
-# ---- Parte 2: artigos ----
+# -----------------------------
+# Part 2: Articles
+# -----------------------------
 with open(articles_file, "r", encoding="utf-8") as f:
-    articles = json.load(f)  # assume lista de JSONs
+    articles = json.load(f)
     for item in articles:
-        text_to_process = item.get("title", "") + " " + item.get("text", "")
-        words = hebrew_re.findall(text_to_process)
+        text = item.get("title", "") + " " + item.get("text", "")
+        words = hebrew_re.findall(text)
         unique_words.update(words)
 
-# ---- Parte 3: comentários trending ----
+# -----------------------------
+# Part 3: Trending comments
+# -----------------------------
 with open(trending_file, "r", encoding="utf-8") as f:
-    videos = json.load(f)  # lista de vídeos
+    videos = json.load(f)
     for video in videos:
-        comments = video.get("comments", [])
-        for comment in comments:
+        for comment in video.get("comments", []):
             text = comment.get("text", "")
             words = hebrew_re.findall(text)
             unique_words.update(words)
 
-# ---- salvar resultado ----
+# -----------------------------
+# Save result
+# -----------------------------
 unique_words_list = sorted(unique_words)
 
 with open(output_file, "w", encoding="utf-8") as f:

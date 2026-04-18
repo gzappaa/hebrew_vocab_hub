@@ -61,12 +61,12 @@ DOWNLOAD_DELAY = 1
 #ITEM_PIPELINES = {
 #    "scraping.pipelines.SQLPipeline": 300,
 #}
-#ITEM_PIPELINES = {
-#    'scraping.pipelines.SQLPipeline': 300,
-#     'scraping.pipelines.ExcelPipeline': 400,
-#    'scraping.pipelines.MongoPipeline': 500,
-#     'scraping.pipelines.WordsPipeline': 600,
-#}
+ITEM_PIPELINES = {
+    'scraping.pipelines.SQLPipeline': 300,
+    'scraping.pipelines.ExcelPipeline': 400,
+    'scraping.pipelines.MongoPipeline': 500,
+    'scraping.pipelines.WordsPipeline': 600,
+}
 # Enable and configure the AutoThrottle extension (disabled by default)
 # See https://docs.scrapy.org/en/latest/topics/autothrottle.html
 AUTOTHROTTLE_ENABLED = True
@@ -93,31 +93,6 @@ FEED_EXPORT_ENCODING = "utf-8"
 
 # Logging settings
 LOG_FILE = 'scrapy_full_log.txt'
-LOG_LEVEL = 'DEBUG'  # pega tudo: info, warning, error
+LOG_LEVEL = 'DEBUG'  # info, warning, error
 
-# settings.py additions - > spider_sentences
-DOWNLOAD_HANDLERS = {
-    "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
-    "http":  "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
-}
 
-PLAYWRIGHT_BROWSER_TYPE = "chromium"
-
-PLAYWRIGHT_LAUNCH_OPTIONS = {
-    "headless": False,   # ← OBRIGATÓRIO para passar Turnstile
-    "args": [
-        "--disable-blink-features=AutomationControlled",
-        "--no-sandbox",
-    ],
-}
-
-PLAYWRIGHT_CONTEXTS = {
-    "logged_in": {
-        "storage_state": "state.json",
-        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "viewport": {"width": 1280, "height": 800},
-    }
-}
-
-# Deixa o spider decidir o que fazer com 403
-HTTPERROR_ALLOW_ALL = True

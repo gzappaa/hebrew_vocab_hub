@@ -15,9 +15,9 @@ Date: 15/04
 Decision: Use a more conservative request strategy when consuming the Tatoeba API.
 Reason: I was getting a lot of rate limits (HTTP 429) from the Tatoeba API, so I reduced the request speed and added cooldowns and retries. It’s not very efficient, but it’s more stable and avoids getting blocked.
 
+
 Date: 17/04
-Decision: Use a more conservative request strategy when consuming the Tatoeba API.
-Reason: I was getting a lot of rate limits (HTTP 429) from the Tatoeba API, so I reduced the request speed and added cooldowns and retries. It’s not very efficient, but it’s more stable and avoids getting blocked.
+Decision: Implement a hybrid scraping strategy (Tatoeba API + Reverso API + HTML fallback) with deduplication and persistent state.
+Reason: The Tatoeba API only covered ~9k out of ~12k required sentences, leaving ~3k missing. To fill this gap, I used Reverso by intercepting its API responses via Playwright and falling back to HTML parsing when the API returned insufficient data. This ensured consistent coverage per word. Deduplication (seen set) prevents repeated sentences, and incremental persistence allows safe resume and avoids data loss during long runs.
 
 
-remember - .json name
