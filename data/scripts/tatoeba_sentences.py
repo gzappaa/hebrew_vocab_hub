@@ -88,7 +88,7 @@ def fetch(word):
             if r.status_code == 200:
                 data = r.json()
 
-                # 🔥 SE NÃO TEM RESULTADO → NÃO FICA INSISTINDO
+                # 🔥 IF THERE IS NO RESULT, DO NOT INSIST
                 if not data.get("results"):
                     return None
 
@@ -178,7 +178,7 @@ while i < len(words):
             })
 
     # ---------------------------
-    # CHECKPOINT (AGORA A CADA 10)
+    # CHECKPOINT (EVERY 10 WORDS)
     # ---------------------------
     if i % 10 == 0:
         with open(OUTPUT_PATH, "w", encoding="utf-8") as f:

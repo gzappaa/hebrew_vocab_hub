@@ -8,7 +8,7 @@ root = Path(__file__).parent.parent
 data_dir = root
 data_dir.mkdir(exist_ok=True)
 
-unique_words_file = data_dir / "unique_words.txt"
+unique_words_file = data_dir / "word_sources.json"
 hebrew_words_file = data_dir / "hebrew_words_RAW.json"
 output_file = data_dir / "common_words.json"
 
@@ -30,16 +30,18 @@ def clean_word(word: str):
     # keep only Hebrew letters
     cleaned = non_hebrew_re.sub('', no_nekud)
 
-    # IMPORTANT: drop empty results
     return cleaned if cleaned else None
 
 
-# --- load + clean unique_words.txt ---
+# --- load + clean word_sources.json ---
 unique_words_set = set()
 
 with open(unique_words_file, "r", encoding="utf-8") as f:
-    for line in f:
-        cw = clean_word(line.strip())
+    word_sources = json.load(f)
+
+    for item in word_sources:
+        word = item.get("word")
+        cw = clean_word(word)
         if cw:
             unique_words_set.add(cw)
 

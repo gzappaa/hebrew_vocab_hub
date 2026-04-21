@@ -5,7 +5,7 @@ from scraping.items import DictItem
 
 
 class DictSpider(scrapy.Spider):
-    name = "dictspider"
+    name = "dict"
     start_urls = ["https://www.pealim.com/dict/"]
 
     ## custom settings

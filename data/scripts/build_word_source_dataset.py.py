@@ -1,69 +1,87 @@
 import json
 from pathlib import Path
 import re
+from collections import defaultdict
 
 # -----------------------------
 # Paths
 # -----------------------------
 root = Path(__file__).parent.parent
-data_dir = root
-data_dir.mkdir(exist_ok=True)
 
 lyrics_file = root / "all_lyrics.txt"
-articles_file = root / "hadshon_articles.json"
-trending_file = root / "trending_23-03-2026.json"
-output_file = data_dir / "unique_words.txt"
+news_file = root / "hadshon_articles.json"
+youtube_file = root / "trending_23-03-2026.json"
+
+output_file = root / "word_sources.json"
 
 # -----------------------------
-# Regex: match Hebrew words
+# Regex: Hebrew words
 # -----------------------------
 hebrew_re = re.compile(r'[\u0590-\u05FF]+')
 
 # -----------------------------
-# Store unique words
+# Data structure
 # -----------------------------
-unique_words = set()
+data = defaultdict(lambda: {
+    "songs": 0,
+    "news": 0,
+    "youtube": 0
+})
 
 # -----------------------------
-# Part 1: Lyrics
+# Part 1: Songs
 # -----------------------------
 with open(lyrics_file, "r", encoding="utf-8") as f:
     for line in f:
-        line = line.strip()
-        if not line:
-            continue
         words = hebrew_re.findall(line)
-        unique_words.update(words)
+        for w in words:
+            data[w]["songs"] += 1
 
 # -----------------------------
-# Part 2: Articles
+# Part 2: News
 # -----------------------------
-with open(articles_file, "r", encoding="utf-8") as f:
+with open(news_file, "r", encoding="utf-8") as f:
     articles = json.load(f)
     for item in articles:
         text = item.get("title", "") + " " + item.get("text", "")
         words = hebrew_re.findall(text)
-        unique_words.update(words)
+        for w in words:
+            data[w]["news"] += 1
 
 # -----------------------------
-# Part 3: Trending comments
+# Part 3: YouTube
 # -----------------------------
-with open(trending_file, "r", encoding="utf-8") as f:
+with open(youtube_file, "r", encoding="utf-8") as f:
     videos = json.load(f)
     for video in videos:
         for comment in video.get("comments", []):
             text = comment.get("text", "")
             words = hebrew_re.findall(text)
-            unique_words.update(words)
+            for w in words:
+                data[w]["youtube"] += 1
 
 # -----------------------------
-# Save result
+# Convert to list format
 # -----------------------------
-unique_words_list = sorted(unique_words)
+final_data = []
 
+for word, sources in data.items():
+    total = sources["songs"] + sources["news"] + sources["youtube"]
+
+    if total > 0:
+        final_data.append({
+            "word": word,
+            "songs": sources["songs"],
+            "news": sources["news"],
+            "youtube": sources["youtube"],
+            "total": total
+        })
+
+# -----------------------------
+# Save
+# -----------------------------
 with open(output_file, "w", encoding="utf-8") as f:
-    for word in unique_words_list:
-        f.write(word + "\n")
+    json.dump(final_data, f, ensure_ascii=False, indent=2)
 
-print(f"Total unique Hebrew words from all sources: {len(unique_words_list)}")
+print(f"Total words: {len(final_data)}")
 print(f"Saved to: {output_file}")

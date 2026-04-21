@@ -4,15 +4,14 @@ from pathlib import Path
 
 
 class DetailspiderSpider(scrapy.Spider):
-    name = "spider_words"
+    name = "words"
     allowed_domains = ["pealim.com"]
 
     custom_settings = {
         "ITEM_PIPELINES": {
-            "scraping.pipelines.WordsPipeline": 600
         },
         "FEEDS": {
-            "dict-complete.json": {
+            "dict-complete2.json": {
                 "format": "json",
                 "encoding": "utf8",
                 "indent": 2,
@@ -21,8 +20,8 @@ class DetailspiderSpider(scrapy.Spider):
     }
 
     def start_requests(self):
-        # project root: C:\hebrew_vocab_hub
-        ROOT_DIR = Path(__file__).resolve().parents[3]
+        # Project root: hebrew_vocab_hub
+        ROOT_DIR = Path(__file__).resolve().parents[2]
         json_path = ROOT_DIR / "dict.json"
 
         with open(json_path, "r", encoding="utf-8") as f:
@@ -50,6 +49,19 @@ class DetailspiderSpider(scrapy.Spider):
 
         item["tables"] = conjugations
         yield item
+
+    def extract_hebrew(self, td):
+        """
+        Priority:
+        1. chaser (modern Ktiv Male)
+        2. menukad (niqqud / dictionary form fallback)
+        """
+        chaser = td.css("span.chaser::text").get()
+
+        if chaser:
+            return chaser.replace("~", "").strip()
+
+        return td.css("span.menukad::text").get(default="").strip()
 
     def parse_table(self, table):
         result = {}
@@ -85,7 +97,7 @@ class DetailspiderSpider(scrapy.Spider):
 
             cells = []
             for td in row.css("td"):
-                hebrew = td.css("span.menukad::text").get(default="").strip()
+                hebrew = self.extract_hebrew(td)
                 transcription = "".join(td.css("div.transcription *::text").getall()).strip()
                 meaning = "".join(td.css("div.meaning *::text").getall()).strip()
 

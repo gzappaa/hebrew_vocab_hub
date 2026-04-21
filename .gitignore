@@ -26,3 +26,5 @@ unique_words.txt
 files.py
 lista_caminhos_projeto.txt
 all_imports.txt
+word_sources.json
+vocab_dataset.json

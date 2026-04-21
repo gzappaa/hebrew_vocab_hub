@@ -3,7 +3,7 @@ from ..items import ArticleItem
 
 
 class HadshonArticlesSpider(scrapy.Spider):
-    name = "Hadshon_articles"
+    name = "hadshon_articles"
     allowed_domains = ["hadshon.education.gov.il"]
 
     custom_settings = {
