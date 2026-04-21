@@ -1,0 +1,121 @@
+PYTHON = python
+SCRAPY = scrapy
+DATA   = data
+SCRIPTS = data/scripts
+
+# ── One-time / full rebuild ────────────────────────────────────────────────
+
+## Scrape the full dictionary from pealim (one-time, slow)
+scrape-dict:
+	$(SCRAPY) crawl dict
+
+## Scrape all word pages and build conjugation tables
+scrape-words:
+	$(SCRAPY) crawl words
+
+## Extract all Hebrew word forms from dict-complete.json → hebrew_words_RAW.json
+words-raw:
+	$(PYTHON) $(SCRIPTS)/words.py
+
+## Scrape hadshon vocabulary site → hadshon.json
+scrape-hadshon:
+	$(SCRAPY) crawl hadshon
+
+## Scrape hadshon news articles → hadshon_articles.json
+scrape-hadshon-articles:
+	$(SCRAPY) crawl hadshon_articles
+
+## Filter Spotify top charts for Hebrew songs → hebrew_songs.json
+filter-songs:
+	$(PYTHON) $(SCRIPTS)/hebrew_song_filter.py
+
+## Fetch Genius URLs for each Hebrew song → hebrew_songs_genius.json
+fetch-genius:
+	$(PYTHON) $(SCRIPTS)/musicfinder.py
+
+## Scrape lyrics from Genius → songs/ + all_lyrics.txt
+scrape-lyrics:
+	$(SCRAPY) crawl lyrics
+	$(PYTHON) $(SCRIPTS)/lyrics_scrambler.py
+
+## Full one-time setup (run once to bootstrap everything)
+bootstrap: scrape-dict scrape-words words-raw scrape-hadshon scrape-hadshon-articles filter-songs fetch-genius scrape-lyrics words-set sentences word-sources dataset
+
+
+# ── Daily pipeline ─────────────────────────────────────────────────────────
+
+## Fetch today's trending YouTube comments → trending_daily.json
+trending:
+	$(PYTHON) $(SCRIPTS)/youtube_comments_daily.py
+
+## Build word frequency by source → word_sources.json
+word-sources:
+	$(PYTHON) $(SCRIPTS)/build_word_source_dataset.py
+
+## Rebuild final vocab dataset → vocab_dataset.json
+dataset:
+	$(PYTHON) $(SCRIPTS)/final_dataset.py
+
+## Full daily refresh (trending → sources → dataset)
+daily: trending word-sources dataset
+
+
+# ── Sentences (one-time, rate-limited) ────────────────────────────────────
+
+## Build common_words.json from unique_words + hebrew_words_RAW intersection
+words-set:
+	$(PYTHON) $(SCRIPTS)/words_set.py
+
+## Fetch sentences from Tatoeba public API → tatoeba_sentences.json + missing.json
+sentences-tatoeba:
+	$(PYTHON) $(SCRIPTS)/tatoeba_sentences.py
+
+## Setup Playwright state for Reverso scraping
+sentences-state:
+	$(PYTHON) $(SCRIPTS)/state.py
+
+## Fetch sentences for missing words via Reverso → sentences_reverso.json
+sentences-reverso: sentences-state
+	$(PYTHON) $(SCRIPTS)/more_sentences.py
+
+## Run full sentence pipeline (tatoeba first, then reverso for missing)
+sentences: sentences-tatoeba sentences-reverso
+
+
+# ── Tests ──────────────────────────────────────────────────────────────────
+
+test:
+	pytest tests/ -v
+
+test-spiders:
+	pytest tests/test_spider_dict.py tests/test_spider_words.py tests/test_spider_hadshon.py tests/test_spider_hadshon_articles.py tests/test_spider_lyrics.py -v
+
+test-pipeline:
+	pytest tests/test_items.py tests/test_pipelines.py -v
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+## Show this help
+help:
+	@echo ""
+	@echo "Usage: make <target>"
+	@echo ""
+	@echo "One-time setup:"
+	@grep -E '^## ' Makefile | grep -A1 'scrape-dict\|scrape-words\|words-raw\|scrape-hadshon\b\|scrape-hadshon-articles\|filter-songs\|fetch-genius\|scrape-lyrics\|bootstrap' | grep '##' | sed 's/## /  /'
+	@echo ""
+	@echo "Daily:"
+	@grep -E '^## ' Makefile | grep -A1 'trending\b\|word-sources\|dataset\|daily' | grep '##' | sed 's/## /  /'
+	@echo ""
+	@echo "Sentences:"
+	@grep -E '^## ' Makefile | grep -A1 'words-set\|sentences' | grep '##' | sed 's/## /  /'
+	@echo ""
+	@echo "Tests:"
+	@grep -E '^## ' Makefile | grep -A1 'test' | grep '##' | sed 's/## /  /'
+	@echo ""
+
+.PHONY: scrape-dict scrape-words words-raw scrape-hadshon scrape-hadshon-articles \
+        filter-songs fetch-genius scrape-lyrics bootstrap \
+        trending word-sources dataset daily \
+        words-set sentences-tatoeba sentences-state sentences-reverso sentences \
+        test test-spiders test-pipeline help

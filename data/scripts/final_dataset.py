@@ -1,5 +1,5 @@
 """
-build_vocab_dataset.py  (v2)
+build_vocab_dataset.py 
 
 Matching logic:
   For every entry in dict-complete.json, collect ALL Hebrew forms that appear:

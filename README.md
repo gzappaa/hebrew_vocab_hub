@@ -1,295 +1,313 @@
-# 🇮🇱 hebrew_vocab_hub
+# hebrew_vocab_hub
 
-> A large-scale Hebrew vocabulary data pipeline — scraping, processing, and enriching Hebrew words from dictionaries, government educational sites, trending media, song lyrics, and real-world corpora into a clean, sentence-rich dataset.
+A data pipeline that builds a structured Hebrew vocabulary dataset from multiple real-world sources — dictionary entries, song lyrics, news articles, YouTube comments, and bilingual sentence corpora — and outputs a single unified JSON ready for use in language learning APIs, apps, or databases.
 
----
-
-## 📋 Table of Contents
-
-- [Overview](#overview)
-- [Project Structure](#project-structure)
-- [Pipeline Architecture](#pipeline-architecture)
-  - [Phase 1 — Dictionary Scraping](#phase-1--dictionary-scraping)
-  - [Phase 2 — Media & Lyrics Collection](#phase-2--media--lyrics-collection)
-  - [Phase 3 — Trending & Real-World Data](#phase-3--trending--real-world-data)
-  - [Phase 4 — Vocabulary Intersection](#phase-4--vocabulary-intersection)
-  - [Phase 5 — Sentence Enrichment](#phase-5--sentence-enrichment)
-- [Output Files](#output-files)
-- [Setup & Installation](#setup--installation)
-- [Running the Pipeline](#running-the-pipeline)
-- [Testing](#testing)
-- [CI/CD](#cicd)
-- [Configuration](#configuration)
-- [Tech Stack](#tech-stack)
+Built with **Scrapy** for web scraping, **Playwright** for browser automation against private APIs, **pandas** for data export, **MySQL** and **MongoDB** as intermediate storage during scraping, and **Python** scripts for all data processing and assembly. The scraping layer stores data in parallel to SQL, MongoDB, and Excel during development; the final pipeline works entirely from JSON files on disk.
 
 ---
 
-## Overview
+## What it produces
 
-`hebrew_vocab_hub` automates the collection and enrichment of Hebrew vocabulary by combining multiple heterogeneous data sources:
+`data/vocab_dataset.json` — ~13,000 Hebrew words (unvocalized), each entry containing:
 
-- **Structured dictionaries** (Pealim) — morphology, conjugation tables, word classes
-- **Government educational content** (Hadshon) — curated vocabulary and news articles
-- **Popular music** — top Spotify Israel tracks with scraped lyrics
-- **Trending language** — daily YouTube comments from popular Israeli videos
-- **Sentence databases** — Tatoeba and Reverso for real-world usage examples
+```json
+{
+  "word": "חברה",
+  "multiple_meanings": true,
+  "meanings": [
+    {
+      "hebrew": "חֶבְרָה",
+      "transcription": "chevra",
+      "root": "ח - ב - ר",
+      "part_of_speech": "Noun - feminine",
+      "meaning": "company, society",
+      "audio_url": "https://audio.pealim.com/...",
+      "word_url": "https://www.pealim.com/dict/...",
+      "tables": [...]
+    },
+    {
+      "hebrew": "חֲבֵרָה",
+      "transcription": "chavera",
+      "meaning": "girlfriend; female friend; member",
+      ...
+    }
+  ],
+  "sentences": [
+    { "sentence": "היא חברה שלי.", "translation": "She is my friend.", "source": "tatoeba" },
+    { "sentence": "החברה הזו גדולה.", "translation": "This company is big.", "source": "reverso" }
+  ],
+  "sources": {
+    "songs": 12,
+    "news": 45,
+    "youtube": 8,
+    "total": 65
+  }
+}
+```
 
-The end result is a rich dataset of ~12,500 high-frequency Hebrew words, each grounded in real media usage and enriched with translated example sentences.
+`multiple_meanings: true` is set whenever the same unvocalized spelling (e.g. חברה) maps to two or more distinct dictionary entries — different words that are only distinguishable by their niqqudot (vowel points).
+
+Hebrew is normally written without niqqudot (vowel points) in modern text, so the same string can represent completely different words depending on context. חברה for example can be חֶבְרָה (company), חֲבֵרָה (girlfriend), or חִבְּרָה (she connected — past tense 3fs of לחבר). Matching is done across all inflected forms in the conjugation tables using Unicode NFD decomposition to strip combining characters, so any form that reduces to the same bare string gets grouped under the same entry. The `sources` field reflects how often that word appears in real Israeli content — songs, news, and YouTube comments — giving a rough measure of practical frequency.
+
+The dataset is **PostgreSQL JSONB-ready** — insert the whole document into a `jsonb` column and index on `word`.
 
 ---
 
-## Project Structure
+## Pipeline overview
+
+```
+pealim.com ──► spider_dict ──► dict.json
+                                    │
+                    spider_words ◄──┘
+                          │
+                          ▼
+                  dict-complete.json ──► words.py ──► hebrew_words_RAW.json
+                                                              │
+Spotify charts ──► hebrew_song_filter ──► hebrew_songs.json  │
+                          │                                   │
+               musicfinder (Genius API)                       │
+                          │                                   │
+               spider_lyrics ──► songs/ ──► lyrics_scrambler ──► all_lyrics.txt
+                                                              │
+hadshon.gov.il ──► spider_hadshon ──► hadshon.json           │
+               ──► spider_hadshon_articles ──► hadshon_articles.json
+                                                              │
+YouTube Data API ──► youtube_comments_daily ──► trending_daily.json
+                                                              │
+                    build_word_source_dataset ◄───────────────┤
+                          │                         (songs + news + youtube)
+                          ▼
+                    word_sources.json
+                                                              │
+                    words_set.py ◄────────────────────────────┘
+                    (unique_words.txt ∩ hebrew_words_RAW)
+                          │
+                          ▼
+                    common_words.json (~13k words)
+                          │
+              ┌───────────┴────────────┐
+              ▼                        ▼
+    tatoeba_sentences.py      more_sentences.py
+    (public API, ~10k)        (Playwright + Reverso, ~3k missing)
+              │                        │
+              └───────────┬────────────┘
+                          ▼
+              sentences_tatoeba.json + sentences_reverso.json
+                          │
+                          ▼
+                    final_dataset.py
+                          │
+                          ▼
+                    vocab_dataset.json ✓
+```
+
+---
+
+## Project structure
 
 ```
 hebrew_vocab_hub/
 ├── scraping/
 │   ├── spiders/
-│   │   ├── spider_dict.py          # Pealim dictionary scraper
-│   │   ├── spider_words.py         # Word conjugation table scraper
-│   │   ├── spider_hadshon.py       # Hadshon vocabulary scraper
-│   │   ├── spider_hadshon_articles.py  # Hadshon news articles scraper
-│   │   └── spider_lyrics.py        # Genius lyrics scraper
+│   │   ├── spider_dict.py          # Scrapes pealim.com/words page by page
+│   │   ├── spider_words.py         # Visits each word URL, extracts all conjugation tables
+│   │   ├── spider_hadshon.py       # Scrapes hadshon.co.il (gov vocabulary site for students) — collected, reserved for future use
+│   │   ├── spider_hadshon_articles.py  # Scrapes hadshon news articles
+│   │   └── spider_lyrics.py        # Scrapes lyrics from Genius URLs
 │   ├── items.py
-│   ├── pipelines.py
+│   ├── pipelines.py            # SQLPipeline (MySQL), ExcelPipeline, MongoPipeline, WordsPipeline (MongoDB)
 │   ├── middlewares.py
 │   └── settings.py
+│
 ├── data/
 │   ├── scripts/
-│   │   ├── hebrew_song_filter.py   # Filter Hebrew songs from Spotify chart
-│   │   ├── musicfinder.py          # Resolve song URLs via Genius API
-│   │   ├── lyrics_scrambler.py     # Merge & shuffle lyrics into corpus
-│   │   ├── unique_word.py          # Extract unique words from all corpora
-│   │   ├── words.py                # Flatten all word forms into RAW list
-│   │   ├── words_set.py            # Intersect unique_words with RAW list
-│   │   ├── tatoeba_sentences.py    # Fetch sentences from Tatoeba API
-│   │   ├── more_sentences.py       # Fetch missing sentences via Reverso (Playwright)
-│   │   ├── youtube_comments_daily.py  # Collect trending YouTube comments
-│   │   └── state.py                # State tracker for resumable runs
-│   ├── common_words.json
-│   ├── hebrew_words_RAW.json
-│   ├── hebrew_songs.json
-│   ├── hebrew_songs_genius.json
-│   ├── hadshon.json
-│   ├── hadshon_articles.json
-│   ├── sentences_tatoeba.json
-│   ├── sentences_reverso.json
-│   ├── missing.json
-│   ├── unique_words.txt
-│   └── all_lyrics.txt
-├── tests/
-│   ├── test_items.py
-│   ├── test_pipelines.py
-│   ├── test_spider_dict.py
-│   ├── test_spider_hadshon.py
-│   ├── test_spider_hadshon_articles.py
-│   ├── test_spider_lyrics.py
-│   └── test_spider_words.py
-├── .github/
-│   └── workflows/
-│       └── scraping.yaml           # CI/CD pipeline
-├── dict.json
-├── state.json
+│   │   ├── words.py                # Extracts all Hebrew forms from dict-complete → hebrew_words_RAW.json
+│   │   ├── words_set.py            # Intersects unique_words.txt ∩ hebrew_words_RAW → common_words.json
+│   │   ├── hebrew_song_filter.py   # Filters Spotify Israel top 2000 for Hebrew-titled songs
+│   │   ├── musicfinder.py          # Fetches Genius URLs for each Hebrew song
+│   │   ├── lyrics_scrambler.py     # Merges all song txts, shuffles line order → all_lyrics.txt
+│   │   ├── build_word_source_dataset.py  # Counts word frequency across songs/news/youtube
+│   │   ├── tatoeba_sentences.py    # Fetches 3 example sentences per word from Tatoeba API
+│   │   ├── state.py                # Generates Playwright auth state for Reverso
+│   │   ├── more_sentences.py       # Fetches sentences for missing words via Reverso (Playwright)
+│   │   ├── youtube_comments_daily.py  # Pulls top YouTube IL comments → trending_daily.json
+│   │   └── final_dataset.py        # Assembles the final vocab_dataset.json
+│   │
+│   ├── common_words.json           # ~13k unvocalized Hebrew words
+│   ├── dict-complete.json          # Full dictionary with niqqudot + conjugation tables
+│   ├── word_sources.json           # Word frequency by source (songs / news / youtube)
+│   ├── sentences_tatoeba.json      # Example sentences from Tatoeba
+│   ├── sentences_reverso.json      # Example sentences from Reverso
+│   ├── vocab_dataset.json          # ✓ Final unified dataset
+│   └── ...
+│
+├── tests/                          # Unit tests for spiders and pipeline
+├── .github/workflows/scraping.yaml # Runs pytest on every push and pull request
+├── Makefile                        # Orchestrates the full pipeline
 ├── requirements.txt
-└── scrapy.cfg
+└── .env
 ```
 
 ---
 
-## Pipeline Architecture
+## Setup
 
-### Phase 1 — Dictionary Scraping
-
-#### `spider_dict` · `scraping/spiders/spider_dict.py`
-
-Crawls [pealim.com/words](https://pealim.com/words) page by page, extracting every entry with its word, grammatical class, meaning, and metadata. Results are persisted to MongoDB, SQL, and Excel, and exported as **`dict.json`**.
-
-#### `spider_words` · `scraping/spiders/spider_words.py`
-
-Reads the word URLs from `dict.json` and visits each word's dedicated page, dynamically extracting all available inflection/conjugation tables (verb binyanim, noun declensions, etc.). Outputs all forms to feed the next stage.
-
-#### `data/scripts/words.py`
-
-Processes all scraped word pages and flattens every conjugated and inflected form into a single raw list. Produces **`hebrew_words_RAW.json`** — ~235,000 word forms.
-
----
-
-### Phase 2 — Media & Lyrics Collection
-
-#### `spider_hadshon` · `scraping/spiders/spider_hadshon.py`
-
-Scrapes [Hadshon](https://hadshon.co.il) — an Israeli government platform for Hebrew learners — collecting vocabulary entries, abbreviations, notable people, proverbs, and more. Outputs **`hadshon.json`**.
-
-#### `spider_hadshon_articles` · `scraping/spiders/spider_hadshon_articles.py`
-
-Scrapes the news article section of Hadshon, collecting article content for corpus use. Outputs **`hadshon_articles.json`**.
-
-#### `data/scripts/hebrew_song_filter.py`
-
-Takes the Spotify Weekly Chart totals for Israel (top ~2,000 tracks since 2018) and filters for songs with Hebrew in the title. Outputs **`hebrew_songs.json`**.
-
-#### `data/scripts/musicfinder.py`
-
-For each song in `hebrew_songs.json`, queries the Genius API to resolve the lyrics page URL. Outputs **`hebrew_songs_genius.json`**.
-
-#### `spider_lyrics` · `scraping/spiders/spider_lyrics.py`
-
-Reads `hebrew_songs_genius.json` and scrapes the full lyrics for each track from Genius, stripping structural annotations (e.g., `[Chorus]`, `[Verse 1]`). Saves one `.txt` file per song under `data/songs/`.
-
-#### `data/scripts/lyrics_scrambler.py`
-
-Merges all individual song `.txt` files into a single corpus, then shuffles line order to break song-level structure while preserving sentence integrity. Outputs **`all_lyrics.txt`**.
-
----
-
-### Phase 3 — Trending & Real-World Data
-
-#### `data/scripts/youtube_comments_daily.py`
-
-Uses the YouTube Data API to fetch comments from the most-viewed Israeli videos of the day. Outputs a dated snapshot — e.g., **`trending_23-03-2026.json`** (configurable).
-
-#### `data/scripts/unique_word.py`
-
-Aggregates all text sources — `hadshon_articles.json`, `all_lyrics.txt`, and the trending JSON — and extracts every unique Hebrew word token. Outputs **`unique_words.txt`**.
-
-> ⚠️ To use a different trending file, update the `trending_file` variable in `unique_word.py`:
-> ```python
-> trending_file = root / "trending_23-03-2026.json"  # change to your file
-> ```
-
----
-
-### Phase 4 — Vocabulary Intersection
-
-#### `data/scripts/words_set.py`
-
-Intersects `unique_words.txt` (words seen in real media) with `hebrew_words_RAW.json` (all known morphological forms). The result is a deduplicated, frequency-grounded vocabulary set of **~12,500 words**, exported as **`common_words.json`**.
-
----
-
-### Phase 5 — Sentence Enrichment
-
-#### `data/scripts/tatoeba_sentences.py`
-
-Queries the [Tatoeba](https://tatoeba.org) API for each of the 12,500 words, fetching up to 3 translated example sentences per word while respecting Tatoeba's rate limits. Achieves coverage for ~9,000 words. Outputs **`sentences_tatoeba.json`** and **`missing.json`** (the remaining ~3,000 uncovered words).
-
-#### `data/scripts/state.py`
-
-Generates **`state.json`** to track progress across resumable runs. Required before running `more_sentences.py`.
-
-#### `data/scripts/more_sentences.py`
-
-Processes the ~3,000 words in `missing.json` using [Playwright](https://playwright.dev/) to intercept Reverso's private API, fetching 3 translated sentences per word. Falls back to DOM scraping when the API is unavailable. Outputs **`sentences_reverso.json`**.
-
----
-
-## Output Files
-
-| File | Description |
-|------|-------------|
-| `dict.json` | All dictionary entries from Pealim |
-| `data/hebrew_words_RAW.json` | ~235k raw word forms (all inflections) |
-| `data/hadshon.json` | Vocabulary from Hadshon (government learner site) |
-| `data/hadshon_articles.json` | News articles from Hadshon |
-| `data/hebrew_songs.json` | Filtered Hebrew songs from Spotify Israel chart |
-| `data/hebrew_songs_genius.json` | Songs enriched with Genius lyrics URLs |
-| `data/all_lyrics.txt` | Full lyrics corpus (shuffled line order) |
-| `data/unique_words.txt` | All unique word tokens from media corpora |
-| `data/common_words.json` | ~12,500 high-frequency validated Hebrew words |
-| `data/sentences_tatoeba.json` | Example sentences for ~9,000 words (Tatoeba) |
-| `data/sentences_reverso.json` | Example sentences for remaining ~3,000 words (Reverso) |
-| `data/missing.json` | Words with no Tatoeba coverage (input for Reverso step) |
-| `trending_<date>.json` | Daily YouTube trending word snapshot |
-
----
-
-## Setup & Installation
-
-### Prerequisites
-
-- Python 3.10+
-- Node.js (optional, for any JS tooling)
-- MongoDB (for spider_dict pipeline persistence)
-- A Chromium browser (for Playwright in `more_sentences.py`)
-
-### Install dependencies
+**Requirements:** Python 3.10+, pip
 
 ```bash
+git clone https://github.com/gzappaa/hebrew_vocab_hub
+cd hebrew_vocab_hub
 pip install -r requirements.txt
 playwright install chromium
 ```
 
-### Environment variables
-
-Copy `.env.example` to `.env` and fill in your API keys:
+Create a `.env` file at the root:
 
 ```env
-GENIUS_API_TOKEN=your_genius_token
-YOUTUBE_API_KEY=your_youtube_api_key
-MONGO_URI=mongodb://localhost:27017
+# MySQL (used by spider_dict pipeline)
+MYSQL_HOST=
+MYSQL_PORT=
+MYSQL_USER=
+MYSQL_PASSWORD=
+MYSQL_DB=
+
+# MongoDB (used by spider_dict and spider_words pipelines)
+MONGO_URI=
+
+# Genius API (used by musicfinder.py)
+CLIENT_ID_GENIUS=
+CLIENT_SECRET_GENIUS=
+CLIENT_ACCESS_TOKEN=
+
+# YouTube Data API v3 (used by youtube_comments_daily.py)
+API_KEY_YOUTUBE=
+```
+
+> MySQL and MongoDB are only required if you want to use those scraping pipelines directly. The final dataset build (`make dataset`) only needs the JSON files on disk.
+
+---
+
+## Running the pipeline
+
+### Full bootstrap (run once)
+
+Runs everything from scratch except the daily YouTube trending step. Requires the Genius and YouTube API keys in `.env`.
+
+```bash
+make bootstrap
+```
+
+### Daily refresh
+
+Fetches today's YouTube trending comments, rebuilds word frequency counts, and regenerates the final dataset.
+
+```bash
+make daily
+```
+
+### Individual steps
+
+```bash
+make scrape-dict            # Scrape pealim.com dictionary
+make scrape-words           # Scrape conjugation tables for each word
+make words-raw              # Extract all Hebrew forms → hebrew_words_RAW.json
+make scrape-hadshon         # Scrape hadshon vocabulary site
+make scrape-hadshon-articles  # Scrape hadshon news
+make filter-songs           # Filter Spotify charts for Hebrew songs
+make fetch-genius           # Fetch Genius lyric URLs
+make scrape-lyrics          # Scrape and merge lyrics
+make words-set              # Build common_words.json
+make sentences              # Fetch example sentences (Tatoeba + Reverso)
+make word-sources           # Build word frequency dataset
+make dataset                # Build final vocab_dataset.json
+make trending               # Fetch today's YouTube comments (daily only)
+```
+
+### Tests
+
+```bash
+make test                   # All tests
+make test-spiders           # Spider tests only
+make test-pipeline          # Pipeline tests only
 ```
 
 ---
 
-## Running the Pipeline
+## Data sources
 
-Run each stage in order. All scripts are designed to be idempotent and resumable.
-
-```bash
-# Phase 1 — Dictionary
-scrapy crawl dict
-scrapy crawl words
-python data/scripts/words.py
-
-# Phase 2 — Media & Lyrics
-scrapy crawl hadshon
-scrapy crawl hadshon_articles
-python data/scripts/hebrew_song_filter.py
-python data/scripts/musicfinder.py
-scrapy crawl lyrics
-python data/scripts/lyrics_scrambler.py
-
-# Phase 3 — Trending
-python data/scripts/youtube_comments_daily.py
-python data/scripts/unique_word.py
-
-# Phase 4 — Intersection
-python data/scripts/words_set.py
-
-# Phase 5 — Sentences
-python data/scripts/tatoeba_sentences.py
-python data/scripts/state.py
-python data/scripts/more_sentences.py
-```
+| Source | What it provides | Script |
+|--------|-----------------|--------|
+| [pealim.com](https://www.pealim.com) | Dictionary entries with niqqudot, transcription, conjugation tables | `spider_dict`, `spider_words` |
+| [hadshon.co.il](https://www.hadshon.co.il) | News articles used in word frequency counts (`hadshon_articles`). Vocabulary/abbreviations data (`hadshon`) collected and reserved for future use | `spider_hadshon`, `spider_hadshon_articles` |
+| Spotify Israel top charts | Top ~2000 songs in Israel since 2018, filtered for Hebrew titles | `hebrew_song_filter` |
+| [Genius](https://genius.com) | Song lyrics for each Hebrew track | `musicfinder`, `spider_lyrics` |
+| [Tatoeba](https://tatoeba.org) | Bilingual example sentences (public API) | `tatoeba_sentences` |
+| [Reverso Context](https://context.reverso.net) | Bilingual example sentences for words missing from Tatoeba | `more_sentences` |
+| YouTube Data API v3 | Daily trending video comments from Israel | `youtube_comments_daily` |
 
 ---
 
-## Testing
+## Scraping pipelines
 
-Unit tests cover all spiders, items, and pipelines using fixture HTML files.
+`spider_dict` scrapes pealim.com page by page, collecting the base dictionary entry for each word (hebrew, transcription, root, part of speech, meaning, audio URL). It runs through three pipelines in parallel:
 
-```bash
-pytest tests/
+| Pipeline | Output | Notes |
+|----------|--------|-------|
+| `SQLPipeline` | MySQL `words` table | Flat row per entry, recreates table on each run (dev mode) |
+| `MongoPipeline` | MongoDB `dict` collection | Batched inserts (100/batch) |
+| `ExcelPipeline` | `dict_words.xlsx` | Full export via pandas |
+
+`spider_words` takes the word URLs from `dict.json` and visits each one individually, dynamically extracting whatever conjugation or declension tables are present — verbs get full tense/person/gender conjugations, nouns get construct state and possessive forms, etc. The table structure varies by part of speech and is captured as-is. It runs through one pipeline:
+
+| Pipeline | Output | Notes |
+|----------|--------|-------|
+| `WordsPipeline` | MongoDB `words_corrected` collection | Includes dynamic `tables` field with all inflection data, batched inserts |
+
+Both spiders' outputs are merged into `dict-complete.json`, which becomes the dictionary source for the final dataset assembly.
+
+---
+
+## Database
+
+The dataset is designed for **PostgreSQL with JSONB**:
+
+```sql
+CREATE TABLE vocab (
+    word TEXT PRIMARY KEY,
+    multiple_meanings BOOLEAN,
+    data JSONB
+);
+
+CREATE INDEX ON vocab (multiple_meanings);
+CREATE INDEX ON vocab USING GIN (data);
 ```
 
-Test fixtures are located in `tests/data/fixtures/htmls/` and mirror real page structures from Pealim, Hadshon, and Genius.
+```python
+import psycopg2, json
+
+conn = psycopg2.connect(DATABASE_URL)
+cur = conn.cursor()
+
+with open("data/vocab_dataset.json", encoding="utf-8") as f:
+    entries = json.load(f)
+
+for entry in entries:
+    cur.execute(
+        "INSERT INTO vocab (word, multiple_meanings, data) VALUES (%s, %s, %s) ON CONFLICT (word) DO UPDATE SET data = EXCLUDED.data",
+        (entry["word"], entry["multiple_meanings"], json.dumps(entry, ensure_ascii=False))
+    )
+
+conn.commit()
+```
 
 ---
 
 ## CI/CD
 
-GitHub Actions is configured in `.github/workflows/scraping.yaml` to automate scheduled scraping runs and validate the pipeline on every push.
+GitHub Actions (`.github/workflows/scraping.yaml`) runs the full test suite on every push and pull request. The daily pipeline (`make daily`) is not automated — run it manually when you want to refresh the trending data.
 
 ---
 
-## Tech Stack
+## License
 
-| Tool | Purpose |
-|------|---------|
-| [Scrapy](https://scrapy.org) | Web scraping framework |
-| [Playwright](https://playwright.dev/python/) | Browser automation for Reverso |
-| [Genius API](https://docs.genius.com) | Song lyrics URL resolution |
-| [YouTube Data API v3](https://developers.google.com/youtube/v3) | Daily trending comments |
-| [Tatoeba API](https://tatoeba.org/en/api) | Sentence examples |
-| MongoDB | Intermediate storage for dictionary data |
-| GitHub Actions | CI/CD scheduling and automation |
-| pytest | Unit testing |
+MIT
