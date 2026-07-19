@@ -166,16 +166,17 @@ def get_sentences(bare_word):
 
 
 # ── Word sources lookup ───────────────────────────────────────────────────
-sources_lookup = {}
+from collections import defaultdict
+
+sources_lookup = defaultdict(lambda: {"songs": 0, "news": 0, "youtube": 0, "total": 0})
+
 for s in word_sources_raw:
     bare = strip_niqqud(s.get("word", ""))
     if bare:
-        sources_lookup[bare] = {
-            "songs":   s.get("songs", 0),
-            "news":    s.get("news", 0),
-            "youtube": s.get("youtube", 0),
-            "total":   s.get("total", 0),
-        }
+        sources_lookup[bare]["songs"]   += s.get("songs", 0)
+        sources_lookup[bare]["news"]    += s.get("news", 0)
+        sources_lookup[bare]["youtube"] += s.get("youtube", 0)
+        sources_lookup[bare]["total"]   += s.get("total", 0)
 
 # ── Build dataset ──────────────────────────────────────────────────────────
 print("Building dataset...")
